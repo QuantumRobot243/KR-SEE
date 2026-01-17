@@ -141,12 +141,3 @@ Therefore:
 ```
 ∃ F : H(K) > 0 at termination
 ```
-
-
-If you want next steps, I can also provide:
-
-* a **“What must be fixed” section**
-* a **formal invariants checklist**
-* or a **post-mortem style roadmap**
-
-Just say so.
