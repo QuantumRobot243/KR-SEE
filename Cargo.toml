@@ -5,11 +5,14 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2"
+libseccomp = "0.3.0"
 signal-hook = "0.3"
 zeroize = { version = "1.8", features = ["derive"] }
+secrecy = { version = "0.8", features = ["serde"] }
 lazy_static = "1.4"
 rpassword = "7.0"
 obfstr = "0.4"
+subtle = "2.4"
 
 [profile.release]
 panic = "abort"    

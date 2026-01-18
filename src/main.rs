@@ -3,51 +3,63 @@ mod secrets;
 mod shutdown;
 
 use hardening::{memory, dump, signals, anti_debug, input, seccomp};
-use secrets::secret::Secret;
+use secrets::secret::SecureSecret;
 use std::panic;
 use obfstr::obfstr;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic::set_hook(Box::new(|_| {
-        eprintln!("\n{}", obfstr!("[CRITICAL] Panic detected!"));
+        eprintln!("\n{}", obfstr!("[CRITICAL] Panic detected! Executing emergency wipe."));
         shutdown::secure_shutdown();
     }));
 
-    anti_debug::block_debugger();       // Wall 1 Stop spies
-    memory::lock_memory();              // Wall 2 Stop disk leaks (Swap)
-    dump::disable_core_dumps();         // Wall 3 Stop crash dumps
+    anti_debug::block_debugger();
+
+    memory::lock_memory().map_err(|e| format!("{:?}", e))?;
+
+    dump::disable_core_dumps();
 
     seccomp::apply_filters();
 
-    signals::install_signal_handlers(); // Wall 4: Handle Ctrl+C
+    signals::install_signal_handlers();
 
-    let _my_password = Secret::new();
 
-    println!("{}", obfstr!("H-shell active. Enter Your Input..."));
+    let _my_password = SecureSecret::new([42u8; 32]);
 
+    println!("{}", obfstr!("H-shell active. Secure environment established."));
+
+    if let Err(e) = run_shell() {
+        eprintln!("[!] Shell Error: {}", e);
+        shutdown::secure_shutdown();
+    }
+
+    Ok(())
+}
+
+fn run_shell() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let command = input::secure_prompt(obfstr!("⟦ H-Shell $⟧=>"));
 
-        if command == obfstr!("status") {
-            println!("{}", obfstr!("[*] Memory: LOCKED"));
-            println!("{}", obfstr!("[*] Ptrace: BLOCKED"));
-            println!("{}", obfstr!("[*] Dumps: DISABLED"));
-            println!("{}", obfstr!("[*] Seccomp: ACTIVE")); 
+        match command.as_str() {
+            c if c == obfstr!("status") => {
+                println!("{}", obfstr!("[*] Memory: LOCKED"));
+                println!("{}", obfstr!("[*] Ptrace: BLOCKED"));
+                println!("{}", obfstr!("[*] Dumps: DISABLED"));
+                println!("{}", obfstr!("[*] Seccomp: ACTIVE"));
+            },
+            c if c == obfstr!("secrets") => {
+                println!("{}", obfstr!("[*] Secrets are loaded and registered for zeroization."));
+            },
+            c if c == obfstr!("exit") || c == obfstr!("quit") => {
+                println!("{}", obfstr!("Exiting securely..."));
+                shutdown::secure_shutdown();
+                break;
+            },
+            "" => continue,
+            _ => {
+                println!("{}", obfstr!("Unknown command. This event has been logged to the secure audit."));
+            }
         }
-        else if command == obfstr!("secrets") {
-            println!("{}", obfstr!("[*] Secrets are loaded and hot."));
-        }
-        else if command == obfstr!("exit") || command == obfstr!("quit") {
-            println!("{}", obfstr!("Exiting..."));
-            shutdown::secure_shutdown();
-        }
-        else if command.is_empty() {
-            continue;
-        }
-        else {
-            println!("{}", obfstr!("Unknown command. This event has been logged."));
-        }
-
-        drop(command);
     }
+    Ok(())
 }

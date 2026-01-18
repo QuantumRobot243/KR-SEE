@@ -1,53 +1,31 @@
-use zeroize::Zeroize;
+use secrecy::{Secret, ExposeSecret};
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 
-struct SendPtr(*mut u8);
-unsafe impl Send for SendPtr {}
-unsafe impl Sync for SendPtr {}
-
 lazy_static! {
-    static ref SECRET_REGISTRY: Mutex<Vec<SendPtr>> = Mutex::new(Vec::new());
+    static ref SECRET_REGISTRY: Mutex<Vec<Box<dyn Fn() + Send + Sync>>> = Mutex::new(Vec::new());
 }
 
-#[derive(Zeroize)]
-pub struct Secret {
-    pub data: Box<[u8; 32]>,
+pub struct SecureSecret {
+    inner: Secret<[u8; 32]>,
 }
 
-impl Secret {
-    pub fn new() -> Self {
-        let mut secret = Secret {
-            data: Box::new([42u8; 32])
-        };
-
-        if let Ok(mut registry) = SECRET_REGISTRY.lock() {
-            registry.push(SendPtr(secret.data.as_mut_ptr()));
+impl SecureSecret {
+    pub fn new(initial_data: [u8; 32]) -> Self {
+        Self {
+            inner: Secret::new(initial_data),
         }
-
-        secret
     }
-}
 
-impl Drop for Secret {
-    fn drop(&mut self) {
-        let my_ptr = self.data.as_mut_ptr();
-
-        if let Ok(mut registry) = SECRET_REGISTRY.lock() {
-            registry.retain(|ptr_wrapper| ptr_wrapper.0 != my_ptr);
-        }
-
-        self.data.zeroize();
+    pub fn expose(&self) -> &[u8; 32] {
+        self.inner.expose_secret()
     }
 }
 
 pub fn wipe_all_registered_secrets() {
     if let Ok(mut registry) = SECRET_REGISTRY.lock() {
-        for ptr_wrapper in registry.iter() {
-            unsafe {
-                let slice = std::slice::from_raw_parts_mut(ptr_wrapper.0, 32);
-                slice.zeroize();
-            }
+        for wipe_fn in registry.iter() {
+            wipe_fn();
         }
         registry.clear();
     }

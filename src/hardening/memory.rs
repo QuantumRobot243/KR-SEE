@@ -1,14 +1,21 @@
-use libc::{mlockall, munlockall, MCL_CURRENT, MCL_FUTURE}; 
-pub fn lock_memory() { 
-    unsafe {
-        if mlockall(MCL_CURRENT | MCL_FUTURE) != 0 {
-            panic!("mlockall failed");
-        }
-    }
+use libc::{mlockall, munlockall,MCL_CURRENT, MCL_FUTURE};
+
+#[derive(Debug)]
+pub enum SecurityError {
+    MemoryLockFailed,
 }
 
-pub fn unlock_memory() {
+pub fn lock_memory() -> Result<(), SecurityError> {
     unsafe {
-        munlockall(); 
+        if mlockall(MCL_CURRENT | MCL_FUTURE) != 0 {
+            return Err(SecurityError::MemoryLockFailed);
+        }
+    }
+    Ok(())
+}
+
+pub fn unlock_memory(){
+    unsafe{
+        let _ = munlockall();
     }
 }
