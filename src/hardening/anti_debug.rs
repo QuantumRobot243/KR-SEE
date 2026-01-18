@@ -7,6 +7,5 @@ pub fn block_debugger() {
             eprintln!("[!] Alert: Debugger detected. Exiting.");
             process::exit(1);
         }
-        ptrace(libc::PTRACE_DETACH, 0, 1, 0);
     }
 }
