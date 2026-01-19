@@ -2,7 +2,7 @@ mod hardening;
 mod secrets;
 mod shutdown;
 
-use hardening::{memory, dump, signals, anti_debug, input, seccomp};
+use hardening::{memory, dump, signals, anti_debug, input, seccomp, namespace};
 use secrets::secret::SecureSecret;
 use std::panic;
 use obfstr::obfstr;
@@ -15,6 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     anti_debug::block_debugger();
 
+    namespace::isolate_environment();
+
     memory::lock_memory().map_err(|e| format!("{:?}", e))?;
 
     dump::disable_core_dumps();
@@ -22,7 +24,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     seccomp::apply_filters();
 
     signals::install_signal_handlers();
-
 
     let _my_password = SecureSecret::new([42u8; 32]);
 
@@ -45,6 +46,7 @@ fn run_shell() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", obfstr!("[*] Memory: LOCKED"));
                 println!("{}", obfstr!("[*] Ptrace: BLOCKED"));
                 println!("{}", obfstr!("[*] Dumps: DISABLED"));
+                println!("{}", obfstr!("[*] Isolation: NAMESPACE (Private /tmp)"));
                 println!("{}", obfstr!("[*] Seccomp: ACTIVE"));
             },
             c if c == obfstr!("secrets") => {
