@@ -18,11 +18,8 @@ This README combines **conceptual explanation, mathematical formalism, and imple
    * [Kernel-Level Isolation](#kernel-level-isolation)
 3. [Threat Model](#threat-model)
 4. [Architecture](#architecture)
-5. [Installation & Build](#installation--build)
-6. [Usage](#usage)
-7. [Caveats & Limitations](#caveats--limitations)
-8. [Acknowledgments](#acknowledgments)
-9. [References](#references)
+6. [Acknowledgments](#acknowledgments)
+
 
 ---
 
@@ -224,15 +221,5 @@ All layers are **modular and mathematically reasoned**.
 
 ## Acknowledgments
 
-* Linux seccomp & namespaces documentation
-* Secure memory handling literature
+* Linux Kernel Docs & Community
 
----
-
-## References
-
-1. Linux man pages: `ptrace`, `mlock`, `seccomp`
-2. “Secure Memory Management in Rust” – Research Papers
-3. Cold-boot attack academic papers
-
----
