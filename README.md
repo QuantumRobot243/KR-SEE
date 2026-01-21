@@ -183,6 +183,55 @@ A ⊂ S,  |A| ≈ 50
 This drastically reduces **attack surface**.
 
 ---
+Temporal Integrity Patrol (The Watchdog)
+
+A single anti-debugging check at startup is a static lock.
+A static lock is a vulnerability.
+
+If an attacker attaches a debugger at t + 1, the initial check is bypassed and the fortress is occupied from within. Static guarantees protect only a moment in time.
+
+The Watchdog converts the security model from a State to a Continuity.
+
+Model
+
+Let:
+
+T_guard = background patrol thread
+
+T_main = primary thread holding secrets
+
+Trace(A, B) = boolean indicating a successful ptrace attachment from A to B
+
+Temporal Invariant
+
+To ensure the process remains unobserved for its entire lifetime, we demand:
+
+∀ t ∈ [t_start, t_end] :
+    Trace(T_guard, T_main) = True
+
+
+The invariant must hold continuously, not just at initialization.
+
+Implementation
+
+Spawn a detached watchdog thread immediately after namespace isolation.
+
+Every 500 ms, the watchdog attempts to seize the ptrace trace slot of the main process.
+
+If the trace slot is already occupied (EPERM), an external observer has entered the environment.
+
+This converts ptrace from a one-time check into a temporal guarantee.
+
+Trigger Condition
+∃ t_i :
+    Trace(T_guard, T_main) = False
+        ⇒ δ(F)
+
+
+Where:
+
+δ(F) is the immediate transition to the Entropy Decay phase.
+---
 
 ## Threat Model
 

@@ -2,7 +2,7 @@ mod hardening;
 mod secrets;
 mod shutdown;
 
-use hardening::{memory, dump, signals, anti_debug, input, seccomp, namespace};
+use hardening::{memory, dump, signals, anti_debug, input, seccomp, namespace, watchdog};
 use secrets::secret::SecureSecret;
 use std::panic;
 use obfstr::obfstr;
@@ -14,15 +14,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     anti_debug::block_debugger();
-
     namespace::isolate_environment();
+    watchdog::start_watchdog();
 
     memory::lock_memory().map_err(|e| format!("{:?}", e))?;
-
     dump::disable_core_dumps();
-
     seccomp::apply_filters();
-
     signals::install_signal_handlers();
 
     let _session_key = SecureSecret::new([0x39u8; 32]);
@@ -35,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
+} 
 
 fn run_shell() -> Result<(), Box<dyn std::error::Error>> {
     loop {
@@ -47,7 +44,7 @@ fn run_shell() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("\n--- Security Status ---");
                 println!("{:<20} {}", obfstr!("[*] Memory:"), obfstr!("LOCKED (mlockall)"));
-                println!("{:<20} {}", obfstr!("[*] Ptrace:"), obfstr!("BLOCKED"));
+                println!("{:<20} {}", obfstr!("[*] Ptrace:"), obfstr!("BLOCKED (Continuous Patrol)"));
                 println!("{:<20} {}", obfstr!("[*] Dumps:"), obfstr!("DISABLED"));
                 println!("{:<20} {}", obfstr!("[*] Namespace:"), obfstr!("ACTIVE (User + Mount)"));
                 println!("{:<20} {} (Mapped Root)", obfstr!("[*] Internal UID:"), internal_uid);
