@@ -1,13 +1,13 @@
 use secrecy::{Secret, ExposeSecret};
-use std::sync::{Mutex, Arc, Weak};
+use std::sync::{Mutex, Arc};
 use lazy_static::lazy_static;
-use zeroize::Zeroize;
 
 lazy_static! {
     static ref SECRET_REGISTRY: Mutex<Vec<Box<dyn Fn() + Send + Sync>>> = Mutex::new(Vec::new());
 }
 
 pub struct SecureSecret {
+    #[allow(dead_code)]
     inner: Arc<Mutex<Secret<[u8; 32]>>>,
 }
 
@@ -20,11 +20,7 @@ impl SecureSecret {
             registry.push(Box::new(move || {
                 if let Some(strong_inner) = weak_inner.upgrade() {
                     if let Ok(mut secret) = strong_inner.lock() {
-                        let secret_mut = secret.expose_secret();
-                        let ptr = secret_mut.as_ptr() as *mut u8;
-                        unsafe {
-                            std::ptr::write_bytes(ptr, 0, 32);
-                        }
+                        *secret = Secret::new([0u8; 32]);
                     }
                 }
             }));
@@ -33,8 +29,13 @@ impl SecureSecret {
         Self { inner }
     }
 
+    #[allow(dead_code)]
     pub fn expose(&self) -> [u8; 32] {
-        *self.inner.lock().unwrap().expose_secret()
+        if let Ok(secret) = self.inner.lock() {
+            *secret.expose_secret()
+        } else {
+            [0u8; 32]
+        }
     }
 }
 

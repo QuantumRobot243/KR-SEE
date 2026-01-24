@@ -1,4 +1,9 @@
-/target/
-/**/target/
+target/
 .DS_Store
-*.lock
+.zed/
+.zed-workspace
+*.swp
+*.swo
+*~
+core
+core.*

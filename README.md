@@ -1,39 +1,41 @@
 # KR-SEE: Kernel-Level Security & Memory Enforcement
 
-**KR-SEE** is a kernel-level security framework and hardening toolkit focused on **memory persistence control, anti-debugging, entropy management, and isolation**. It is designed for researchers, security engineers, and developers who want to explore or implement strong runtime security guarantees.
+KR-SEE is a kernel-level security framework and hardening toolkit focused on memory persistence control, anti-debugging, entropy management, and isolation. This README aims to present the conceptual ideas, precise mathematical invariants, and practical implementation notes with math rendered in standard LaTeX delimiters for clarity.
 
-This README combines **conceptual explanation, mathematical formalism, and implementation insight**. KR-SEE is not just code—it is the expression of security principles in action.
+> Note about math rendering
+>
+> - This file uses LaTeX-style math delimiters: inline `$...$` and display `$$...$$`. Some Markdown viewers (GitHub Pages, many static site generators, and local Markdown previewers with KaTeX/MathJax enabled) will render this as formatted math.
+> - If your viewer does not render LaTeX, every important equation is followed by a monospace/plain-text fallback so the formulas remain readable.
 
 ---
 
 ## Table of Contents
 
-1. [Motivation](#motivation)
-2. [Core Principles](#core-principles)
-
-   * [Memory Persistence](#memory-persistence)
-   * [Anti-Debugging](#anti-debugging)
-   * [Entropy Decay](#entropy-decay)
-   * [Failure Semantics](#failure-semantics)
-   * [Kernel-Level Isolation](#kernel-level-isolation)
-3. [Threat Model](#threat-model)
-4. [Architecture](#architecture)
-5. [Acknowledgments](#acknowledgments)
+1. [Motivation](#motivation)  
+2. [Core Principles](#core-principles)  
+   - [Memory Persistence](#memory-persistence)  
+   - [Anti-Debugging](#anti-debugging)  
+   - [Entropy Decay](#entropy-decay)  
+   - [Failure Semantics](#failure-semantics)  
+   - [Kernel-Level Isolation](#kernel-level-isolation)  
+   - [Temporal Integrity Patrol (Watchdog)](#temporal-integrity-patrol-watchdog)  
+3. [Threat Model](#threat-model)  
+4. [Architecture](#architecture)  
+5. [How to View Math / Tips](#how-to-view-math--tips)  
+6. [Acknowledgments](#acknowledgments)
 
 ---
 
 ## Motivation
 
-Modern systems often **fail to protect secrets in memory**, especially against low-level attacks such as:
+Modern systems often fail to protect secrets in memory against low-level attacks such as:
 
-* Cold-boot attacks
-* ptrace / debugging attacks
-* Swap / pagefile analysis
-* Exploit-triggered panics
+- Cold-boot attacks
+- ptrace / debugging attacks
+- Swap / pagefile analysis
+- Exploit-triggered panics
 
-KR-SEE attempts to **formalize and enforce memory-bound secrets**, system isolation, and runtime hardening.
-
-> *“If you don’t know math, step away from computer science now. Code is just applied math.”*
+KR-SEE formalizes and enforces memory-bound secrets, continuous anti-observation guarantees, and runtime hardening.
 
 ---
 
@@ -41,228 +43,160 @@ KR-SEE attempts to **formalize and enforce memory-bound secrets**, system isolat
 
 ### 1. Memory Persistence
 
-Secrets must reside **only in RAM** and die immediately on power loss. This prevents forensic retrieval from SSDs or swap.
+Requirement: secrets must live only in RAM and must not persist to disk or swap.
 
-Let:
+Formal invariant (display math):
+$$
+K \in R \quad\land\quad K \notin D
+$$
+Plaintext fallback: `K ∈ R  ∧  K ∉ D`
 
-* K = secret data
-* R = RAM
-* D = Disk/Swap
+Time-to-live constraint:
+$$
+\mathrm{TTL}(K) = \mathrm{TTL}(R) < \infty
+$$
+Plaintext fallback: `TTL(K) = TTL(R) < ∞`
 
-Then:
+Practical measures:
+- Use `mlock()` / mlockall() to pin pages.
+- Disable swapping for pages holding secrets.
+- Ensure memory is zeroized on release and that secrets vanish on power loss.
 
+Code example (Rust-like zeroize):
+```rust
+// zeroize in place (fallback if zeroize crate not available)
+for b in secret.as_mut_slice() { *b = 0; }
 ```
-K ∈ R  ∧  K ∉ D
-```
-
-We enforce a **time-to-live** tied to the RAM power cycle:
-
-```
-TTL(K) = TTL(R) < ∞
-```
-
-In practice:
-
-* Use `mlock()` to pin memory
-* Avoid any swapping
-* Ensure secrets vanish on power-off
-
-This gives **true ephemeral secrets**.
 
 ---
 
 ### 2. Anti-Debugging
 
-We attempt to prevent attackers from observing processes via ptrace.
+Goal: only the process itself may observe its memory or execution state.
 
-Let:
+Notation:
+- Let `P` be a process.
+- `Obs(P)` is the set of observers of `P`.
 
-* P = process
-* Obs(P) = set of observers of P
+Invariant:
+$$
+\mathrm{Obs}(P) = \{P\}
+$$
+Fallback: `Obs(P) = { P }`
 
-Lock invariant:
+Failure (observed by an external entity):
+$$
+\mathrm{Obs}(P) = \varnothing \;\Rightarrow\; \exists \text{Attacker}: \text{Attacker} \to P
+$$
+Fallback: `Obs(P) = ∅ ⇒ ∃ Attacker : Attacker → P`
 
-```
-Obs(P) = { P }
-```
-
-Failure invariant:
-
-```
-Obs(P) = ∅ ⇒ ∃ Attacker : Attacker → P
-```
-
-> In plain language: You cannot build a perfect fortress in Linux without OS support. KR-SEE recognizes these limits.
+Reality note: Kernel-level policies and continuous monitoring are required — a one-time check at startup is insufficient.
 
 ---
 
 ### 3. Entropy Decay
 
-Secrets are high-entropy data. On deletion, **entropy must vanish**.
+Secrets are defined by their high entropy. On deletion, entropy must tend to zero.
 
-Let:
+Formal:
+$$
+\lim_{t \to t_{\mathrm{end}}} H(K_t) = 0
+$$
+Fallback: `lim t→t_end H(K_t) = 0`
 
-* H(K) = entropy of secret K
-* t_end = end of lifecycle
-
-Then:
-
-```
-lim t→t_end H(K_t) = 0
-```
-
-Implementation:
-
-* Maintain a global registry of secret pointers
-* Force overwrite (`zeroize`) for all bits
-* Memory physically scrubbed before release
-
-```rust
-for bit in K {
-    bit := 0
-}
-```
-
-This ensures no residual data remains after destruction.
+Practical steps:
+- Track secret allocations in a registry.
+- Overwrite memory deterministically (`zeroize`).
+- Use secure memory scrubbing to avoid compiler optimizations that elide writes.
 
 ---
 
 ### 4. Failure Semantics
 
-Panic or crashes are **not accidents—they are attack vectors**.
+Crashes and panics are first-class considerations; failure handling must preserve secrecy.
 
 Let:
+- `C` be the cleanup routine.
+- `F` be a failure event.
 
-* C = cleanup function
-* F = failure event
+If a process aborts (panic with immediate abort), cleanup may not run. Formally:
+$$
+\text{panic} = \text{"abort"} \;\Rightarrow\; F \Rightarrow \text{Immediate Exit}
+$$
+Fallback: `panic = "abort" ⇒ F ⇒ Immediate Exit`
 
-If:
+If cleanup is not part of the failure trace:
+$$
+C \notin \delta(F) \;\Rightarrow\; \exists F : H(K) > 0 \text{ at termination}
+$$
+Fallback: `C ∉ δ(F) ⇒ ∃ F : H(K) > 0 at termination`
 
-```
-panic = "abort" ⇒ F ⇒ Immediate Exit
-```
-
-Then:
-
-```
-C ∉ δ(F)  ⇒  ∃ F : H(K) > 0 at termination
-```
-
-> KR-SEE documents these failure semantics transparently. Users must account for panics as potential leaks.
+Design implication: register panic hooks, ensure secure abort paths, and prefer process isolation strategies that allow secure teardown.
 
 ---
 
 ### 5. Kernel-Level Isolation
 
-KR-SEE assumes **host environment cannot be trusted**.
+Assume the host may be partially untrusted. Use namespaces, user mappings, and seccomp to reduce attack surface.
 
-#### Namespaces
+Notation:
+- `S` = set of all Linux syscalls.
+- `A` = allowed syscalls.
 
-* `unshare` User & Mount namespaces
-* Map current user to virtual root
-* Run unprivileged on host
+Invariant:
+$$
+A \subset S, \quad |A| \approx 50
+$$
+Fallback: `A ⊂ S, |A| ≈ 50`
 
-#### Seccomp
-
-* Strict syscall filter in **Trap mode**
-* Only ~50 whitelisted syscalls allowed
-
-Formally:
-
-* S = set of all Linux syscalls
-* A = allowed syscalls
-
-```
-A ⊂ S,  |A| ≈ 50
-```
-
-```
-∀ s ∈ S : s ∉ A ⇒ Kernel Trap
-```
-
-This drastically reduces **attack surface**.
+Policy:
+- Strict seccomp filters in trap mode.
+- Minimal syscall whitelist.
+- Namespaces (`unshare`) for user & mount isolation.
 
 ---
-Temporal Integrity Patrol (The Watchdog)
 
-A single anti-debugging check at startup is a static lock.
-A static lock is a vulnerability.
+### Temporal Integrity Patrol (Watchdog)
 
-If an attacker attaches a debugger at t + 1, the initial check is bypassed and the fortress is occupied from within. Static guarantees protect only a moment in time.
+A static anti-debugging check is a point-in-time guarantee and can be bypassed later. KR-SEE enforces a temporal invariant using a watchdog thread.
 
-The Watchdog converts the security model from a State to a Continuity.
+Definitions:
+- `T_guard` = background patrol thread.
+- `T_main` = primary thread holding secrets.
+- `Trace(A, B)` = boolean: A successfully ptrace-attaches to B.
 
-Model
+Temporal invariant:
+$$
+\forall t\in [t_{\text{start}},t_{\text{end}}] \;:\; \mathrm{Trace}(T_{\text{guard}}, T_{\text{main}}) = \text{True}
+$$
+Fallback: `∀ t ∈ [t_start, t_end] : Trace(T_guard, T_main) = True`
 
-Let:
+Implementation sketch:
+- Spawn `T_guard` after namespace isolation.
+- Every 500 ms, attempt to seize the ptrace slot of `T_main`.
+- If ptrace slot is taken (EPERM or equivalent), trigger immediate entropy decay (secure wipe and safe shutdown).
+- Transition on detection:
+  $$ \exists t_i : \mathrm{Trace}(T_{\text{guard}},T_{\text{main}}) = \text{False} \Rightarrow \delta(F) $$
+  Fallback: `∃ t_i : Trace(T_guard, T_main) = False ⇒ δ(F)`
 
-T_guard = background patrol thread
-
-T_main = primary thread holding secrets
-
-Trace(A, B) = boolean indicating a successful ptrace attachment from A to B
-
-Temporal Invariant
-
-To ensure the process remains unobserved for its entire lifetime, we demand:
-
-∀ t ∈ [t_start, t_end] :
-    Trace(T_guard, T_main) = True
-
-
-The invariant must hold continuously, not just at initialization.
-
-Implementation
-
-Spawn a detached watchdog thread immediately after namespace isolation.
-
-Every 500 ms, the watchdog attempts to seize the ptrace trace slot of the main process.
-
-If the trace slot is already occupied (EPERM), an external observer has entered the environment.
-
-This converts ptrace from a one-time check into a temporal guarantee.
-
-Trigger Condition
-∃ t_i :
-    Trace(T_guard, T_main) = False
-        ⇒ δ(F)
-
-
-Where:
-
-δ(F) is the immediate transition to the Entropy Decay phase.
 ---
 
 ## Threat Model
 
 KR-SEE defends against:
+- Memory dumping / cold-boot attacks
+- Debugging & ptrace attacks
+- Unauthorized syscall execution via untrusted processes
+- Crash/panic-based data leakage
 
-* Memory dumping / cold-boot attacks
-* Debugging & ptrace attacks
-* Unauthorized syscall execution
-* Standard crash / panic attacks
-
-KR-SEE **does not guarantee immunity** from kernel exploits or hardware-level attacks.
-
----
-
-## Architecture
-
-KR-SEE consists of:
-
-1. **Memory Management Layer** – pins, zeroizes, and tracks secrets
-2. **Anti-Debugging Layer** – enforces self-tracing invariants
-3. **Isolation Layer** – namespaces and seccomp filters
-4. **Runtime Hardening Layer** – panic hooks, thread-safe pointers, secure shutdown
-
-All layers are **modular and mathematically reasoned**.
-
-* Secrets are pinned to RAM
-* Syscall enforcement active
-* Anti-debugging hooks loaded
+KR-SEE does NOT provide protection against:
+- Arbitrary kernel exploits (root compromise)
+- Hardware-level attacks (physical bus snooping, DMA attacks on unprotected hardware)
 
 ---
 
 ## Acknowledgments
 
-* Linux Kernel Docs & Community
+- Linux Kernel documentation and the open-source security community.
+
+---

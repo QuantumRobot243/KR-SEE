@@ -1,28 +1,39 @@
-use libc::{ptrace, PTRACE_ATTACH, PTRACE_DETACH, pid_t};
-use std::thread;
-use std::time::Duration;
+use libc::{fork, ptrace, waitpid, PTRACE_TRACEME, PTRACE_CONT, SIGKILL, WIFEXITED, WIFSIGNALED};
 use std::process;
-use std::io;
-use crate::shutdown::secure_shutdown;
 
-pub fn start_watchdog() {
-    let pid = process::id() as pid_t;
+pub fn secure_launch<F>(logic: F)
+where
+    F: FnOnce() -> Result<(), Box<dyn std::error::Error>>
+{
+    unsafe {
+        let pid = fork();
 
-    thread::spawn(move || {
-        loop {
-            unsafe {
-                if ptrace(PTRACE_ATTACH, pid, 0, 0) < 0 {
-                    let err = io::Error::last_os_error().raw_os_error();
+        if pid < 0 {
+            process::exit(1);
+        }
 
-                    if err == Some(libc::EPERM) {
-                        eprintln!("\n[!] WATCHDOG ALERT: Process integrity compromised by external tracer.");
-                        secure_shutdown();
-                    }
-                } else {
-                    ptrace(PTRACE_DETACH, pid, 0, 0);
+        if pid == 0 {
+            if ptrace(PTRACE_TRACEME, 0, 0, 0) < 0 {
+                process::exit(1);
+            }
+            if let Err(_) = logic() {
+                process::exit(1);
+            }
+            process::exit(0);
+        } else {
+            loop {
+                let mut status = 0;
+                waitpid(pid, &mut status, 0);
+
+                if WIFEXITED(status) || WIFSIGNALED(status) {
+                    process::exit(0);
+                }
+                if ptrace(PTRACE_CONT, pid, 0, 0) < 0 {
+                    // If The Parents lose control, kill the child 
+                    libc::kill(pid, SIGKILL);
+                    process::exit(1);
                 }
             }
-            thread::sleep(Duration::from_millis(500));
         }
-    });
+    }
 }
